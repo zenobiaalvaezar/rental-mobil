@@ -28,7 +28,7 @@ func NewPaymentService() *PaymentService {
 func (s *PaymentService) CreatePayment(userEmail string, amount float64, rentalID uint) (*Invoice, error) {
 	// Buat parameter untuk invoice xendit
 	params := invoice.CreateParams{
-		ExternalID:  fmt.Sprintf("rental-%d", rentalID),
+		ExternalID:  fmt.Sprintf("order-%d", rentalID),
 		Amount:      amount,
 		PayerEmail:  userEmail,
 		Description: "Car Rental Payment",
