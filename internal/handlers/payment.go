@@ -15,13 +15,13 @@ type CreatePaymentRequest struct {
 	Amount float64 `json:"amount" validate:"required,min=10000"`
 }
 
+// di handlers/payment.go
 func WebhookHandler(c echo.Context) error {
-	fmt.Println("Webhook received")
+	// Tambahkan log untuk debug
+	fmt.Println("Received webhook with token:", c.Request().Header.Get("X-CALLBACK-TOKEN"))
 
-	// Verify Xendit Callback Token
-	callbackToken := c.Request().Header.Get("X-Callback-Token")
+	callbackToken := c.Request().Header.Get("X-CALLBACK-TOKEN")
 	if callbackToken != os.Getenv("XENDIT_CALLBACK_TOKEN") {
-		fmt.Println("Invalid callback token received:", callbackToken)
 		return echo.NewHTTPError(http.StatusUnauthorized, "Invalid callback token")
 	}
 
