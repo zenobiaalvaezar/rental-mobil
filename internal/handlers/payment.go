@@ -2,28 +2,25 @@ package handlers
 
 import (
 	"car-rental/internal/models"
-	"car-rental/internal/services"
 	"car-rental/pkg/database"
 	"fmt"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 	"net/http"
-	"os"
+	"time"
 )
 
 type CreatePaymentRequest struct {
 	Amount float64 `json:"amount" validate:"required,min=10000"`
 }
 
-// di handlers/payment.go
 func WebhookHandler(c echo.Context) error {
-	// Tambahkan log untuk debug
-	fmt.Println("Received webhook with token:", c.Request().Header.Get("X-CALLBACK-TOKEN"))
+	// Log webhook data yang diterima
+	fmt.Println("----------------------------------------")
+	fmt.Println("Webhook received at:", time.Now())
 
 	callbackToken := c.Request().Header.Get("X-CALLBACK-TOKEN")
-	if callbackToken != os.Getenv("XENDIT_CALLBACK_TOKEN") {
-		return echo.NewHTTPError(http.StatusUnauthorized, "Invalid callback token")
-	}
+	fmt.Printf("Callback token: %s\n", callbackToken)
 
 	var webhookData struct {
 		ExternalID string  `json:"external_id"`
@@ -33,82 +30,80 @@ func WebhookHandler(c echo.Context) error {
 	}
 
 	if err := c.Bind(&webhookData); err != nil {
-		fmt.Println("Error binding webhook data:", err)
+		fmt.Printf("Error binding webhook data: %v\n", err)
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid webhook data")
 	}
 
-	fmt.Printf("Webhook data received: %+v\n", webhookData)
+	fmt.Printf("Webhook data: \n")
+	fmt.Printf("- External ID: %s\n", webhookData.ExternalID)
+	fmt.Printf("- Status: %s\n", webhookData.Status)
+	fmt.Printf("- Amount: %.2f\n", webhookData.Amount)
+	fmt.Printf("- ID: %s\n", webhookData.ID)
 
 	tx := database.DB.Begin()
 
-	// Get payment data
+	// Log query yang akan dijalankan
+	fmt.Printf("\nSearching for payment in database...\n")
+	fmt.Printf("Query: external_id = %s\n", webhookData.ExternalID)
+
 	var payment models.Payment
 	if err := tx.Where("external_id = ?", webhookData.ExternalID).First(&payment).Error; err != nil {
+		fmt.Printf("Error finding payment: %v\n", err)
 		tx.Rollback()
-		fmt.Printf("Payment not found for external_id: %s\n", webhookData.ExternalID)
 		return echo.NewHTTPError(http.StatusNotFound, "Payment not found")
 	}
 
-	// Update payment status
+	fmt.Printf("Payment found! ID: %d\n", payment.ID)
+
+	// Log status update
+	fmt.Printf("\nUpdating payment status...\n")
 	if err := tx.Model(&payment).Updates(map[string]interface{}{
 		"status": webhookData.Status,
 	}).Error; err != nil {
+		fmt.Printf("Error updating payment: %v\n", err)
 		tx.Rollback()
-		fmt.Printf("Failed to update payment status: %v\n", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update payment")
 	}
 
-	// If payment successful, update rental and car
 	if webhookData.Status == "PAID" {
-		fmt.Println("Payment status is PAID, processing updates...")
+		fmt.Printf("\nPayment is PAID, updating rental and car...\n")
 
-		// Get rental data with User preloaded
 		var rental models.RentalHistory
-		if err := tx.Preload("User").First(&rental, payment.RentalID).Error; err != nil {
+		if err := tx.First(&rental, payment.RentalID).Error; err != nil {
+			fmt.Printf("Error finding rental: %v\n", err)
 			tx.Rollback()
-			fmt.Printf("Rental not found for ID: %d\n", payment.RentalID)
 			return echo.NewHTTPError(http.StatusNotFound, "Rental not found")
 		}
 
+		fmt.Printf("Found rental ID: %d\n", rental.ID)
+
 		// Update rental status
 		if err := tx.Model(&rental).Update("status", "active").Error; err != nil {
+			fmt.Printf("Error updating rental status: %v\n", err)
 			tx.Rollback()
-			fmt.Printf("Failed to update rental status: %v\n", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update rental")
 		}
 
 		// Update car stock
 		if err := tx.Model(&models.Car{}).Where("id = ?", rental.CarID).
 			UpdateColumn("stock_availability", gorm.Expr("stock_availability - ?", 1)).Error; err != nil {
+			fmt.Printf("Error updating car stock: %v\n", err)
 			tx.Rollback()
-			fmt.Printf("Failed to update car stock: %v\n", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update car stock")
 		}
 
-		// Send email notification
-		fmt.Printf("Sending email to: %s\n", rental.User.Email)
-		emailService := services.NewEmailService()
-		err := emailService.SendEmail(
-			rental.User.Email,
-			"Payment Successful",
-			fmt.Sprintf("Your payment of Rp%.2f for rental #%d has been confirmed. Thank you for using our service!",
-				webhookData.Amount, rental.ID),
-		)
-		if err != nil {
-			fmt.Printf("Failed to send email: %v\n", err)
-			// Don't rollback transaction if email fails
-		} else {
-			fmt.Println("Email sent successfully")
-		}
+		fmt.Printf("Successfully updated rental status and car stock\n")
 	}
 
 	if err := tx.Commit().Error; err != nil {
+		fmt.Printf("Error committing transaction: %v\n", err)
 		tx.Rollback()
-		fmt.Printf("Failed to commit transaction: %v\n", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to process payment")
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to process webhook")
 	}
 
-	fmt.Println("Webhook processed successfully")
+	fmt.Printf("\nWebhook processed successfully!\n")
+	fmt.Println("----------------------------------------")
+
 	return c.JSON(http.StatusOK, map[string]string{
 		"status": "success",
 	})
