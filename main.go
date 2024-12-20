@@ -53,7 +53,7 @@ func main() {
 	api.GET("/payments/:id", handlers.GetPaymentDetail)
 
 	// Webhook route (public)
-	e.POST("/api/v1/payments/webhook", handlers.WebhookHandler)
+	e.POST("/payments/webhook", handlers.WebhookHandler)
 
 	// Start server
 	e.Logger.Fatal(e.Start(":8080"))
