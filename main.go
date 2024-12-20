@@ -51,6 +51,7 @@ func main() {
 	// Payment routes
 	api.GET("/payments", handlers.GetPaymentHistory)
 	api.GET("/payments/:id", handlers.GetPaymentDetail)
+	api.POST("/payments/webhook", handlers.WebhookHandler)
 
 	// Webhook route (public)
 	e.POST("/payments/webhook", handlers.WebhookHandler)
